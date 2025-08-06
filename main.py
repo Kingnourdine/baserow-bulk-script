@@ -37,13 +37,18 @@ def get_baserow_rows():
 def build_payload(rows):
     items = []
     for row in rows:
-        domain = row.get(DOMAIN_FIELD, '').strip()
-        if not domain:
+        domain = row.get(DOMAIN_FIELD, '')
+        if not domain or not str(domain).strip():
             continue
+        
+        # Extraction correcte du statut (champ single select)
+        status_obj = row.get(STATUS_FIELD)
+        status_value = status_obj['value'] if isinstance(status_obj, dict) else status_obj
+        
         items.append({
-            'domain': domain,
+            'domain': domain.strip(),
             'record_id': row.get('id'),
-            'status': row.get(STATUS_FIELD),
+            'status': status_value,
             'baserow_data': row
         })
     return items
