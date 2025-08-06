@@ -7,11 +7,11 @@ BASEROW_TABLE_ID = os.environ.get('BASEROW_TABLE_ID')
 N8N_WEBHOOK_URL = os.environ.get('N8N_WEBHOOK_URL')
 
 STATUS_FIELD = 'field_23'
-TARGET_STATUS = 'get monthly traffic'
+TARGET_STATUS_ID = 1  # ID réel de "get monthly traffic"
 DOMAIN_FIELD = 'field_17'
 
 if not all([BASEROW_API_URL, BASEROW_API_TOKEN, BASEROW_TABLE_ID, N8N_WEBHOOK_URL]):
-    raise Exception("Veuillez définir BASEROW_API_URL, BASEROW_API_TOKEN, BASEROW_TABLE_ID, N8N_WEBHOOK_URL dans vos variables d'environnement.")
+    raise Exception("❌ Veuillez définir BASEROW_API_URL, BASEROW_API_TOKEN, BASEROW_TABLE_ID, N8N_WEBHOOK_URL dans vos variables d'environnement.")
 
 def get_baserow_rows():
     url = BASEROW_API_URL.format(table_id=BASEROW_TABLE_ID)
@@ -21,7 +21,7 @@ def get_baserow_rows():
     params = {
         'user_field_names': 'true',
         'size': 200,
-        f'filter__{STATUS_FIELD}__value': TARGET_STATUS
+        f'filter__{STATUS_FIELD}': TARGET_STATUS_ID
     }
     all_rows = []
     next_url = url
@@ -49,6 +49,9 @@ def build_payload(rows):
     return items
 
 def send_to_n8n(items):
+    if not items:
+        print("⚠️ Aucun item à envoyer à n8n.")
+        return
     payload = {
         'items': items
     }
@@ -59,9 +62,9 @@ def send_to_n8n(items):
 def main():
     print("🔎 Récupération des rows Baserow...")
     rows = get_baserow_rows()
-    print(f"Trouvé {len(rows)} rows avec le statut '{TARGET_STATUS}'.")
+    print(f"✔️ {len(rows)} rows trouvées avec le statut ID {TARGET_STATUS_ID}.")
     items = build_payload(rows)
-    print(f"Envoi de {len(items)} items à n8n...")
+    print(f"📦 Envoi de {len(items)} items à n8n...")
     send_to_n8n(items)
 
 if __name__ == "__main__":
