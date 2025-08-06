@@ -21,7 +21,7 @@ def get_baserow_rows():
     params = {
         'user_field_names': 'true',
         'size': 200,
-        'filter__' + STATUS_FIELD: TARGET_STATUS
+        f'filter__{STATUS_FIELD}__value': TARGET_STATUS
     }
     all_rows = []
     next_url = url
