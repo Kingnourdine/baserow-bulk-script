@@ -20,7 +20,7 @@ DOMAIN_FIELD = 'organization primary domain'
 
 # ✅ CONFIGURATION DES BATCHES POUR TEST
 BATCH_SIZE = 10  # Test avec 10 items par batch
-BATCH_INTERVAL_SECONDS = 180  # 3 minutes entre chaque batch
+BATCH_INTERVAL_SECONDS = 90  # 3 minutes entre chaque batch
 
 REQUEST_DELAY = 0.1
 
