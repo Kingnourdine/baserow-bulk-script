@@ -13,10 +13,14 @@ BASEROW_API_TOKEN = os.environ.get('BASEROW_API_TOKEN')
 BASEROW_TABLE_ID = os.environ.get('BASEROW_TABLE_ID')
 N8N_WEBHOOK_URL = os.environ.get('N8N_WEBHOOK_URL')
 
-# ✅ CHAMPS CORRIGÉS BASÉS SUR VOS DONNÉES RÉELLES
-STATUS_FIELD = 'status'  # Le vrai nom du champ status
-TARGET_STATUS = 'monthly traffic generated'  # La vraie valeur à filtrer
-DOMAIN_FIELD = 'organization primary domain'  # Le vrai nom du champ domaine
+# ✅ CHAMPS CORRIGÉS
+STATUS_FIELD = 'status'
+TARGET_STATUS = 'get monthly traffic'  # ✅ Le bon statut à filtrer
+DOMAIN_FIELD = 'organization primary domain'
+
+# ✅ CONFIGURATION DES BATCHES POUR TEST
+BATCH_SIZE = 10  # Test avec 10 items par batch
+BATCH_INTERVAL_SECONDS = 180  # 3 minutes entre chaque batch
 
 REQUEST_DELAY = 0.1
 
@@ -42,13 +46,12 @@ def validate_domain(domain: str) -> bool:
     return True
 
 def get_baserow_rows() -> List[Dict[Any, Any]]:
-    """Fetch all rows from Baserow"""
+    """Fetch all rows from Baserow and filter by status"""
     url = BASEROW_API_URL.format(table_id=BASEROW_TABLE_ID)
     headers = {'Authorization': f'Token {BASEROW_API_TOKEN}'}
     params = {
         'user_field_names': 'true',
         'size': 200
-        # ✅ ON FILTRE MANUELLEMENT APRÈS RÉCUPÉRATION car le status est un objet
     }
     
     all_rows = []
@@ -84,12 +87,23 @@ def get_baserow_rows() -> List[Dict[Any, Any]]:
         logger.error(f"❌ Erreur lors de la récupération: {e}")
         raise
     
-    # ✅ FILTRAGE MANUEL PAR STATUS
+    # ✅ FILTRAGE PAR STATUS "get monthly traffic"
     filtered_rows = []
+    status_counts = {}
+    
     for row in all_rows:
-        status_obj = row.get(STATUS_FIELD)
-        if isinstance(status_obj, dict) and status_obj.get('value') == TARGET_STATUS:
-            filtered_rows.append(row)
+        status_obj = row.get(STATUS_FIELD, {})
+        if isinstance(status_obj, dict):
+            status_value = status_obj.get('value', '')
+            status_counts[status_value] = status_counts.get(status_value, 0) + 1
+            
+            if status_value == TARGET_STATUS:
+                filtered_rows.append(row)
+    
+    logger.info(f"📊 STATISTIQUES DES STATUTS:")
+    for status, count in sorted(status_counts.items()):
+        indicator = "🎯" if status == TARGET_STATUS else "  "
+        logger.info(f"   {indicator} '{status}': {count} rows")
     
     logger.info(f"✔️ {len(filtered_rows)} rows avec le status '{TARGET_STATUS}' sur {len(all_rows)} total")
     return filtered_rows
@@ -103,10 +117,6 @@ def build_payload(rows: List[Dict[Any, Any]]) -> List[Dict[str, Any]]:
     logger.info(f"🔍 Traitement de {len(rows)} rows...")
     
     for i, row in enumerate(rows):
-        if i % 1000 == 0 and i > 0:
-            logger.info(f"📊 Progression: {i}/{len(rows)} rows traitées")
-            
-        # ✅ UTILISER LE BON CHAMP DOMAINE
         domain = row.get(DOMAIN_FIELD, '')
         row_id = row.get('id', 'unknown')
         
@@ -116,11 +126,11 @@ def build_payload(rows: List[Dict[Any, Any]]) -> List[Dict[str, Any]]:
         
         if not validate_domain(str(domain)):
             invalid_domains += 1
-            if invalid_domains <= 10:
+            if invalid_domains <= 5:  # Log seulement les 5 premiers
                 logger.warning(f"⚠️ Domaine invalide ignoré: '{domain}' (ID: {row_id})")
             continue
         
-        # ✅ EXTRACTION CORRECTE DU STATUS
+        # Extraction du status
         status_obj = row.get(STATUS_FIELD, {})
         status_value = status_obj.get('value') if isinstance(status_obj, dict) else status_obj
         
@@ -134,7 +144,7 @@ def build_payload(rows: List[Dict[Any, Any]]) -> List[Dict[str, Any]]:
         })
     
     # Statistiques finales
-    logger.info(f"📈 Statistiques de traitement:")
+    logger.info(f"📈 RÉSULTATS DU TRAITEMENT:")
     logger.info(f"   ✅ Domaines valides: {len(items)}")
     logger.info(f"   🔹 Domaines vides: {empty_domains}")
     logger.info(f"   ⚠️ Domaines invalides: {invalid_domains}")
@@ -142,37 +152,88 @@ def build_payload(rows: List[Dict[Any, Any]]) -> List[Dict[str, Any]]:
     
     return items
 
-def send_to_n8n(items: List[Dict[str, Any]]) -> None:
-    """Send items to n8n webhook"""
-    if not items:
-        logger.warning("⚠️ Aucun item à envoyer à n8n.")
-        return
+def send_batch_to_n8n(batch_items: List[Dict[str, Any]], batch_num: int, total_batches: int) -> bool:
+    """Send a single batch to n8n webhook"""
+    payload = {'items': batch_items}
     
-    payload = {'items': items}
+    logger.info(f"📤 Envoi du batch {batch_num}/{total_batches} ({len(batch_items)} items)")
+    
+    # Show sample domains from this batch
+    sample_domains = [item['domain'] for item in batch_items[:3]]
+    logger.info(f"   Exemples: {', '.join(sample_domains)}{'...' if len(batch_items) > 3 else ''}")
     
     try:
-        logger.info(f"📤 Envoi de {len(items)} items à n8n...")
         resp = requests.post(
-            N8N_WEBHOOK_URL, 
-            json=payload, 
+            N8N_WEBHOOK_URL,
+            json=payload,
             timeout=60,
-            headers={'Content-Type': 'application/json'}
+            headers={'Content-Type': 'application/json'},
+            verify=False  # Pour éviter les erreurs SSL
         )
         resp.raise_for_status()
         
-        logger.info(f"✅ Données envoyées avec succès à n8n")
-        logger.debug(f"Réponse n8n: {resp.text}")
+        logger.info(f"✅ Batch {batch_num} envoyé avec succès!")
+        logger.info(f"   Réponse: {resp.text[:200]}{'...' if len(resp.text) > 200 else ''}")
+        return True
         
     except Exception as e:
-        logger.error(f"❌ Erreur lors de l'envoi à n8n: {e}")
-        raise
+        logger.error(f"❌ Erreur pour le batch {batch_num}: {e}")
+        return False
+
+def send_items_in_batches(items: List[Dict[str, Any]]) -> None:
+    """Send items to n8n in batches with intervals"""
+    if not items:
+        logger.warning("⚠️ Aucun item à envoyer.")
+        return
+    
+    total_batches = (len(items) + BATCH_SIZE - 1) // BATCH_SIZE
+    
+    logger.info(f"🚀 DÉMARRAGE DE L'ENVOI PAR BATCHES")
+    logger.info(f"   📦 {len(items)} items total")
+    logger.info(f"   📊 {total_batches} batches de {BATCH_SIZE} items")
+    logger.info(f"   ⏱️ Intervalle: {BATCH_INTERVAL_SECONDS//60}min {BATCH_INTERVAL_SECONDS%60}s entre chaque batch")
+    
+    successful_batches = 0
+    failed_batches = 0
+    
+    for batch_num in range(total_batches):
+        start_idx = batch_num * BATCH_SIZE
+        end_idx = min((batch_num + 1) * BATCH_SIZE, len(items))
+        batch_items = items[start_idx:end_idx]
+        
+        # Send batch
+        success = send_batch_to_n8n(batch_items, batch_num + 1, total_batches)
+        
+        if success:
+            successful_batches += 1
+        else:
+            failed_batches += 1
+        
+        # Wait before next batch (except for the last one)
+        if batch_num < total_batches - 1:
+            logger.info(f"⏳ Attente de {BATCH_INTERVAL_SECONDS//60}min {BATCH_INTERVAL_SECONDS%60}s avant le prochain batch...")
+            
+            # Show countdown every 30 seconds
+            remaining = BATCH_INTERVAL_SECONDS
+            while remaining > 0:
+                if remaining % 30 == 0 or remaining <= 10:
+                    logger.info(f"   ⏰ {remaining//60}min {remaining%60}s restantes...")
+                time.sleep(1)
+                remaining -= 1
+    
+    # Final summary
+    logger.info(f"🏁 RÉSUMÉ FINAL:")
+    logger.info(f"   ✅ Batches réussis: {successful_batches}")
+    logger.info(f"   ❌ Batches échoués: {failed_batches}")
+    logger.info(f"   📊 Taux de succès: {successful_batches/total_batches*100:.1f}%")
 
 def main():
     """Main execution function"""
     try:
-        logger.info("🚀 Démarrage du script Baserow vers n8n (VERSION CORRIGÉE)")
-        logger.info(f"🎯 Recherche des rows avec le statut: '{TARGET_STATUS}'")
-        logger.info(f"🌐 Champ domaine utilisé: '{DOMAIN_FIELD}'")
+        logger.info("🚀 SCRIPT DE TEST - BATCHES DE 10 ITEMS")
+        logger.info(f"🎯 Filtrage par statut: '{TARGET_STATUS}'")
+        logger.info(f"🌐 Champ domaine: '{DOMAIN_FIELD}'")
+        logger.info(f"📦 Taille des batches: {BATCH_SIZE} items")
         
         # Fetch rows from Baserow
         rows = get_baserow_rows()
@@ -188,10 +249,15 @@ def main():
             logger.warning("⚠️ Aucun item valide trouvé après traitement")
             return
         
-        # Send to n8n
-        send_to_n8n(items)
+        # Limiter à 50 items max pour le test
+        if len(items) > 50:
+            logger.info(f"🧪 Limitation à 50 items pour le test (au lieu de {len(items)})")
+            items = items[:50]
         
-        logger.info("🎉 Script terminé avec succès!")
+        # Send in batches
+        send_items_in_batches(items)
+        
+        logger.info("🎉 Test terminé!")
         
     except Exception as e:
         logger.error(f"💥 Échec du script: {e}")
