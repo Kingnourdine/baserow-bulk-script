@@ -153,14 +153,31 @@ def build_payload(rows: List[Dict[Any, Any]]) -> List[Dict[str, Any]]:
     return items
 
 def send_batch_to_n8n(batch_items: List[Dict[str, Any]], batch_num: int, total_batches: int) -> bool:
-    """Send a single batch to n8n webhook"""
-    payload = {'items': batch_items}
+    """Send a single batch to n8n webhook - Format adapté pour le code n8n existant"""
+    
+    # 🔄 TRANSFORMATION AU FORMAT ATTENDU PAR N8N
+    # Extraire les domaines
+    domains = [item['domain'] for item in batch_items]
+    
+    # Créer le mapping domain -> record_id
+    mapping = {item['domain']: item['record_id'] for item in batch_items}
+    
+    # Créer le payload au format attendu par votre code n8n
+    payload = {
+        'body': {
+            'domains': domains,
+            'mapping': mapping
+        }
+    }
     
     logger.info(f"📤 Envoi du batch {batch_num}/{total_batches} ({len(batch_items)} items)")
     
     # Show sample domains from this batch
-    sample_domains = [item['domain'] for item in batch_items[:3]]
-    logger.info(f"   Exemples: {', '.join(sample_domains)}{'...' if len(batch_items) > 3 else ''}")
+    sample_domains = domains[:3]
+    logger.info(f"   Exemples: {', '.join(sample_domains)}{'...' if len(domains) > 3 else ''}")
+    
+    # Debug: montrer la structure du payload
+    logger.info(f"   📋 Structure: body.domains={len(domains)} items, body.mapping={len(mapping)} entries")
     
     try:
         resp = requests.post(
