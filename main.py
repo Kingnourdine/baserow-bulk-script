@@ -19,7 +19,7 @@ TARGET_STATUS = 'get monthly traffic'  # ✅ Le bon statut à filtrer
 DOMAIN_FIELD = 'organization primary domain'
 
 # ✅ CONFIGURATION DES BATCHES POUR TEST
-BATCH_SIZE = 1000  # Test avec 10 items par batch
+BATCH_SIZE = 1000  # Test avec 1000 items par batch
 BATCH_INTERVAL_SECONDS = 90  # 3 minutes entre chaque batch
 
 REQUEST_DELAY = 0.1
@@ -265,11 +265,6 @@ def main():
         if len(items) == 0:
             logger.warning("⚠️ Aucun item valide trouvé après traitement")
             return
-        
-        # Limiter à 50 items max pour le test
-        if len(items) > 50:
-            logger.info(f"🧪 Limitation à 50 items pour le test (au lieu de {len(items)})")
-            items = items[:50]
         
         # Send in batches
         send_items_in_batches(items)
